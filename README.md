@@ -1,2 +1,3 @@
-# python_project_template
-Template for Python projects.
+# birding
+
+Utility scripts and data related to birding.

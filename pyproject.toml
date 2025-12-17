@@ -4,9 +4,9 @@ build-backend = "hatchling.build"
 
 
 [project]
-name = "package_name"
+name = "birding"
 authors = [{ name = "Benned Hedegaard", email = "bhedegaa@cs.brown.edu" }]
-description = "TODO: Short description of the package."
+description = "Utility scripts and data related to birding."
 version = "0.0.1"
 classifiers = ["Typing :: Typed"]
 
@@ -24,7 +24,7 @@ dependencies = []
 # Example: Optional dependencies to support computer vision applications
 # vision = ["torch", "torchvision", "transformers", "pillow", "opencv-python"]
 
-# all = ["package_name[vision]"] # Install everything
+# all = ["birding[vision]"] # Install everything
 
 
 # Dependency groups manage development-time dependencies
@@ -41,7 +41,7 @@ dev = [
 
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/package_name"] # Include packages at these paths
+packages = ["src/birding"] # Include packages at these paths
 
 
 [tool.ruff]
