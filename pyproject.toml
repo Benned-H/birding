@@ -12,10 +12,10 @@ classifiers = ["Typing :: Typed"]
 
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">= 3.10"    # Support all non-near-EOL Python versions
+requires-python = ">= 3.10" # ebird-api requires Python 3.10+
 
 # Core dependencies - Always installed
-dependencies = []
+dependencies = ["ebird-api", "geopy", "jupyter", "python-dotenv"]
 
 # Optional dependencies support optional user features
 # Reference: https://pydevtools.com/handbook/explanation/what-are-optional-dependencies-and-dependency-groups/

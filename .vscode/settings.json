@@ -29,6 +29,8 @@
         "notebook.source.fixAll": "explicit",
         "notebook.source.organizeImports": "explicit"
     },
+    "notebook.formatOnSave.enabled": true,
+    "notebook.defaultFormatter": "charliermarsh.ruff",
     "[toml]": {
         "editor.defaultFormatter": "tamasfe.even-better-toml"
     },
