@@ -15,7 +15,7 @@ license = { file = "LICENSE" }
 requires-python = ">= 3.10" # ebird-api requires Python 3.10+
 
 # Core dependencies - Always installed
-dependencies = ["ebird-api", "geopy", "jupyter", "python-dotenv"]
+dependencies = ["ebird-api", "geopy", "jupyter", "python-dotenv", "pooch", "tqdm", "geopandas"]
 
 # Optional dependencies support optional user features
 # Reference: https://pydevtools.com/handbook/explanation/what-are-optional-dependencies-and-dependency-groups/
