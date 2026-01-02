@@ -25,6 +25,10 @@ SPECIES_LIST_TTL_S = 7 * SECONDS_PER_DAY
 
 def get_conn() -> sqlite3.Connection:
     """Create and return an active connection to the SQLite database."""
+    if not DB_PATH.exists():
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        DB_PATH.touch(exist_ok=False)
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row  # Return dictionary-like rows instead of tuples
     return conn

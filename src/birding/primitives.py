@@ -55,10 +55,11 @@ class EBirdHotspot:
     """A location in the eBird system with a history of bird observations."""
 
     location: EBirdLocation
-    all_time_species: int
+    all_time_species: int | None
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> EBirdHotspot:
         """Construct an eBird hotspot from a dictionary of JSON data."""
         location = EBirdLocation.from_json(data)
-        return EBirdHotspot(location=location, all_time_species=data["numSpeciesAllTime"])
+        all_time_species = data.get("numSpeciesAllTime")
+        return EBirdHotspot(location, all_time_species)

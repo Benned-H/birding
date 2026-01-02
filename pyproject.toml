@@ -15,7 +15,8 @@ license = { file = "LICENSE" }
 requires-python = ">= 3.10" # ebird-api requires Python 3.10+
 
 # Core dependencies - Always installed
-dependencies = ["ebird-api", "geopy", "jupyter", "python-dotenv", "pooch", "tqdm", "geopandas"]
+dependencies = ["ebird-api", "geopy", "jupyter", "python-dotenv", "scipy"]
+# Possibly later: pooch, tqdm, geopandas, pyproj==3.7.0
 
 # Optional dependencies support optional user features
 # Reference: https://pydevtools.com/handbook/explanation/what-are-optional-dependencies-and-dependency-groups/
@@ -42,6 +43,9 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/birding"] # Include packages at these paths
+
+[tool.uv]
+no-build-package = ["pyproj"]
 
 
 [tool.ruff]
