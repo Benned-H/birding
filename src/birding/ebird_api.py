@@ -5,14 +5,16 @@ import time
 from typing import Any
 
 from dotenv import load_dotenv
-from ebird.api.requests import get_nearby_hotspots, get_species_list
+from ebird.api.requests import get_nearby_hotspots, get_species_list, get_taxonomy
 
 from birding.primitives import Coordinate
 from birding.sqlite_cache import (
     get_cached_nearby_hotspots,
     get_cached_species_list,
+    get_cached_taxonomy_entry,
     put_cached_nearby_hotspots,
     put_cached_species_list,
+    put_cached_taxonomy_entry,
 )
 
 
@@ -77,3 +79,35 @@ def retrieve_species_list(ebird_api_key: str, area_code: str) -> list[str]:
     put_cached_species_list(area_code=area_code, payload=payload, fetched_at_s=fetched_at_s)
 
     return payload
+
+
+def retrieve_taxonomy_entries(ebird_api_key: str, species: list[str]) -> list[dict[str, Any]]:
+    """Retrieve the eBird taxonomy entries for the requested species.
+
+    :param ebird_api_key: eBird API key, used if the requested data is not cached locally
+    :param species: List of eBird species codes identifying the entries to retrieve
+    :return: List of dictionaries containing eBird taxonomy entry data
+    """
+    needs_lookup = [s_id for s_id in species if get_cached_taxonomy_entry(s_id) is None]
+    if needs_lookup:
+        print(f"Calling eBird API for the taxonomy entry of {len(needs_lookup)} species...")
+        fetched_at_s = int(time.time())
+        payload = get_taxonomy(token=ebird_api_key, category="species", species=needs_lookup)
+        time.sleep(1)  # Sleep to avoid exceeding rate limits
+
+        for species_entry_data in payload:
+            entry_id = species_entry_data.get("speciesCode")
+            if entry_id is None:
+                raise KeyError(f"Unable to find species code for data: {species_entry_data}")
+
+            put_cached_taxonomy_entry(entry_id, species_entry_data, fetched_at_s)
+
+    output_data = []
+    for species_id in species:
+        cached = get_cached_taxonomy_entry(species_id)
+        if cached is None:
+            print(f"Unable to retrieve eBird taxonomy entry for species: {species_id}")
+            continue
+        output_data.append(cached)
+
+    return output_data

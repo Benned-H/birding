@@ -63,3 +63,27 @@ class EBirdHotspot:
         location = EBirdLocation.from_json(data)
         all_time_species = data.get("numSpeciesAllTime")
         return EBirdHotspot(location, all_time_species)
+
+
+@dataclass(frozen=True)
+class TaxonomyEntry:
+    """An entry in the eBird taxonomy for a bird species."""
+
+    common_name: str
+    scientific_name: str
+    ebird_species_code: str
+    order: str
+    family_common_name: str
+    family_scientific_name: str
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> TaxonomyEntry:
+        """Construct an eBird taxonomy entry from a dictionary of JSON data."""
+        return TaxonomyEntry(
+            common_name=data["comName"],
+            scientific_name=data["sciName"],
+            ebird_species_code=data["speciesCode"],
+            order=data["order"],
+            family_common_name=data["familyComName"],
+            family_scientific_name=data["familySciName"],
+        )

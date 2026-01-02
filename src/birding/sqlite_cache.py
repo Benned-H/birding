@@ -22,6 +22,12 @@ GEOCODE_TTL_S = 90 * SECONDS_PER_DAY
 SPECIES_LIST_TTL_S = 7 * SECONDS_PER_DAY
 """Time to live (in seconds) for cached species lists (1 week for semi-frequent updates)."""
 
+SPECIES_TAXONOMY_TTL_S = 90 * SECONDS_PER_DAY
+"""Time to live (seconds) for cached eBird species taxonomy entries (3 months; changes slowly)."""
+
+PHOTO_OBSERVATIONS_TTL_S = 7 * SECONDS_PER_DAY
+"""Time to live (seconds) for cached iNaturalist observations providing species photos."""
+
 
 def get_conn() -> sqlite3.Connection:
     """Create and return an active connection to the SQLite database."""
@@ -67,6 +73,25 @@ def init_db() -> None:
               fetched_at    INTEGER NOT NULL,
               expires_at    INTEGER NOT NULL,
               PRIMARY KEY (area_code)
+            );
+
+            --- eBird species taxonomy entries cache
+            CREATE TABLE IF NOT EXISTS species_taxonomy_cache (
+              species_id    TEXT NOT NULL,
+              response_json TEXT NOT NULL,
+              fetched_at    INTEGER NOT NULL,
+              expires_at    INTEGER NOT NULL,
+              PRIMARY KEY (species_id)
+            );
+
+            --- iNaturalist observations with photos cache
+            CREATE TABLE IF NOT EXISTS observation_photos_cache (
+              taxon_name    TEXT NOT NULL,
+              day_of_month  INTEGER NOT NULL,
+              response_json TEXT NOT NULL,
+              fetched_at    INTEGER NOT NULL,
+              expires_at    INTEGER NOT NULL,
+              PRIMARY KEY (taxon_name, day_of_month)
             );
             """,
         )
@@ -228,6 +253,105 @@ def put_cached_species_list(
             VALUES (?, ?, ?, ?)
             """,
             (area_code, json_dump, fetched_at_s, expires_at_s),
+        )
+
+
+def get_cached_taxonomy_entry(species_id: str) -> dict[str, Any] | None:
+    """Retrieve the specified eBird taxonomy species entry, if it is cached.
+
+    :param species_id: eBird species code
+    :return: Dicionary of species taxonomy data if cached, else None
+    """
+    now_s = int(time.time())
+
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT response_json
+            FROM species_taxonomy_cache
+            WHERE species_id = ? AND expires_at >= ?
+            """,
+            (species_id, now_s),
+        ).fetchone()
+
+    return None if row is None else json.loads(row["response_json"])
+
+
+def put_cached_taxonomy_entry(
+    species_id: str,
+    payload: dict[str, Any],
+    fetched_at_s: int,
+    ttl_s: int = SPECIES_TAXONOMY_TTL_S,
+) -> None:
+    """Save the given eBird taxonomy species entry into the SQLite database.
+
+    :param species_id: eBird species code used to index the data
+    :param payload: JSON data resulting from the eBird API call
+    :param fetched_at_s: Unix time (in seconds; rounded) at which the data was fetched
+    :param ttl_s: Duration (in seconds; rounded) that the data is considered valid
+    """
+    json_dump = json.dumps(payload)
+    expires_at_s = fetched_at_s + ttl_s
+
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO species_taxonomy_cache
+            (species_id, response_json, fetched_at, expires_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (species_id, json_dump, fetched_at_s, expires_at_s),
+        )
+
+
+def get_cached_photo_observations(taxon_name: str, day_of_month: int) -> dict[str, Any] | None:
+    """Retrieve cached observations for the specified taxon on the requested day of the month.
+
+    :param taxon_name: Scientific or common name of a taxon
+    :param day_of_month: Day of month on which the cached observations occurred
+    :return: Requested observations of the taxon if cached, else None
+    """
+    now_s = int(time.time())
+
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT response_json
+            FROM observation_photos_cache
+            WHERE taxon_name = ? AND day_of_month = ? AND expires_at >= ?
+            """,
+            (taxon_name, day_of_month, now_s),
+        ).fetchone()
+
+    return None if row is None else json.loads(row["response_json"])
+
+
+def put_cached_photo_observations(
+    taxon_name: str,
+    day_of_month: int,
+    payload: dict[str, Any],
+    fetched_at_s: int,
+    ttl_s: int = PHOTO_OBSERVATIONS_TTL_S,
+) -> None:
+    """Save the given iNaturalist photo observations data into the SQLite database.
+
+    :param taxon_name: Scientific or common name of a taxon
+    :param day_of_month: Day of month on which the cached observations occurred
+    :param payload: JSON data sent as a response to the query
+    :param fetched_at_s: Unix time (in seconds; rounded) at which the data was fetched
+    :param ttl_s: Duration (in seconds; rounded) that the data is considered valid
+    """
+    json_dump = json.dumps(payload, default=str)
+    expires_at_s = fetched_at_s + ttl_s
+
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO observation_photos_cache
+            (taxon_name, day_of_month, response_json, fetched_at, expires_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (taxon_name, day_of_month, json_dump, fetched_at_s, expires_at_s),
         )
 
 
