@@ -5,6 +5,7 @@ from typing import Any
 
 from geopy.geocoders import Nominatim
 
+from birding.primitives import Coordinate
 from birding.sqlite_cache import get_cached_geocode, put_cached_geocode
 
 
@@ -31,8 +32,18 @@ def retrieve_geocode(query: str, user_agent: str = "Geocode Cacher") -> dict[str
     if location is None:
         return None
 
-    payload = location.raw
+    payload: dict[str, Any] = location.raw
 
     put_cached_geocode(query=query, payload=payload, fetched_at_s=fetched_at_s)
 
     return payload
+
+
+def find_coordinate(location: str) -> Coordinate | None:
+    """Retrieve or look up the GPS coordinate for the specified location.
+
+    :param location: Text description of a location (e.g., "Minneapolis, MN")
+    :return: Coordinate data structure, or None if geocoding failed
+    """
+    raw_data = retrieve_geocode(query=location)
+    return None if raw_data is None else Coordinate.from_geocode_data(raw_data)
