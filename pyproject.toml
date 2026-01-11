@@ -15,7 +15,7 @@ license = { file = "LICENSE" }
 requires-python = ">= 3.10" # ebird-api requires Python 3.10+
 
 # Core dependencies - Always installed
-dependencies = ["ebird-api", "geopy", "jupyter", "python-dotenv", "scipy", "pyinaturalist", "ipyplot", "thefuzz"]
+dependencies = ["ebird-api", "geopy", "jupyter", "python-dotenv", "scipy", "pyinaturalist", "ipyplot", "thefuzz", "pandas"]
 # Possibly later: pooch, tqdm, geopandas, pyproj==3.7.0
 
 # Optional dependencies support optional user features
