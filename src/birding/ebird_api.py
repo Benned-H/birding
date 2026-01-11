@@ -1,4 +1,4 @@
-"""Define functions to interface with and cache data from the eBird API."""
+"""Define a class to interface with and cache data from the eBird API."""
 
 import os
 import time
@@ -15,211 +15,205 @@ from ebird.api.requests import (
 from geopy.distance import geodesic
 from thefuzz import fuzz
 
-from birding.primitives import Coordinate, EBirdHotspot
+from birding.primitives import Coordinate, EBirdHotspot, EBirdSpecies
 from birding.sqlite_cache import (
     get_cached,
-    get_cached_nearby_hotspots,
-    get_cached_region_info,
-    get_cached_species_list,
-    get_cached_taxonomy_entry,
     put_cached,
-    put_cached_nearby_hotspots,
-    put_cached_region_info,
-    put_cached_species_list,
-    put_cached_taxonomy_entry,
 )
-from birding.yaml_primitives import EBirdSpecies
 
 
-def get_ebird_api_key() -> str:
-    """Find the eBird API key by loading it from a .env file."""
-    load_dotenv()  # Read variables from a .env file and set them in os.environ
-    ebird_api_key = os.getenv("EBIRD_API_KEY")
-    assert ebird_api_key, "Unable to load an eBird API key from the .env file."
-    return ebird_api_key
+class EBirdAPI:
+    """An interface for the eBird API."""
 
+    def __init__(self) -> None:
+        """Initialize the eBird API interface by finding the eBird API key."""
+        self.ebird_api_key = EBirdAPI.get_ebird_api_key()
 
-def retrieve_nearby_hotspots(
-    ebird_api_key: str,
-    coord: Coordinate,
-    distance_km: int = 25,
-) -> list[dict[str, Any]]:
-    """Retrieve the eBird hotspots near the given coordinate, using the local cache or the API.
+    @staticmethod
+    def get_ebird_api_key() -> str:
+        """Find the eBird API key by loading it from a .env file."""
+        load_dotenv()  # Read variables from a .env file and set them in os.environ
+        ebird_api_key = os.getenv("EBIRD_API_KEY")
+        assert ebird_api_key, "Unable to load an eBird API key from the .env file."
+        return ebird_api_key
 
-    :param ebird_api_key: eBird API key, used if the requested data is not cached locally
-    :param coord: GPS coordinate near which hotspots are found
-    :param distance_km: Maximum distance (km) of included hotspots from the coordinate
-    :return: List of dictionaries of JSON data for each hotspot
-    """
-    cached = get_cached_nearby_hotspots(coord, distance_km)
-    if cached is not None:
-        print(f"Nearby hotspots for {coord} were already cached.")
-        return cached
+    def retrieve_nearby_hotspots(
+        self,
+        coord: Coordinate,
+        distance_km: int = 25,
+    ) -> list[EBirdHotspot]:
+        """Retrieve the eBird hotspots near the given coordinate, using the local cache or the API.
 
-    # Fallback to a real eBird API call
-    print(f"Calling eBird API to identify hotspots near {coord}...")
-    fetched_at_s = int(time.time())
-    payload = get_nearby_hotspots(ebird_api_key, coord.latitude, coord.longitude, dist=distance_km)
-    time.sleep(1)  # Sleep to avoid exceeding rate limits
+        :param coord: GPS coordinate near which hotspots are found
+        :param distance_km: Maximum distance (km) from the coordinate of included hotspots
+        :return: List of data structures representing eBird hotspots
+        """
+        rounded_coord = coord.round_decimals()
+        lat_round = rounded_coord.latitude
+        lng_round = rounded_coord.longitude
 
-    put_cached_nearby_hotspots(
-        coord=coord,
-        distance_km=distance_km,
-        payload=payload,
-        fetched_at_s=fetched_at_s,
-    )
+        payload = get_cached(
+            "nearby_hotspots_cache",
+            lat_round=lat_round,
+            lng_round=lng_round,
+            dist_km=distance_km,
+        )
+        if payload is None:
+            print(f"Calling eBird API to identify hotspots within {distance_km} km of {coord}...")
+            fetched_at_s = int(time.time())
+            payload = get_nearby_hotspots(
+                self.ebird_api_key,
+                coord.latitude,
+                coord.longitude,
+                dist=distance_km,
+            )
+            time.sleep(1)  # Sleep to avoid exceeding rate limits
 
-    return payload
+            put_cached(
+                "nearby_hotspots_cache",
+                payload,
+                fetched_at_s,
+                lat_round=lat_round,
+                lng_round=lng_round,
+                dist_km=distance_km,
+            )
+        else:
+            print(f"Nearby hotspots within {distance_km} km of {coord} were already cached.")
 
+        return [EBirdHotspot.from_json(hotspot_data) for hotspot_data in payload]
 
-def retrieve_species_list(ebird_api_key: str, area_code: str) -> list[str]:
-    """Retrieve the bird species list for an eBird location, using the local cache or the API.
+    def find_nearest_hotspot(self, coord: Coordinate) -> EBirdHotspot | None:
+        """Retrieve the eBird hotspot closest to the given coordinate.
 
-    :param ebird_api_key: eBird API key, used if the requested data is not cached locally
-    :param area_code: Code for a country, subnational region, or eBird location
-    :return: List of identifiers for bird species observed at/in the location/area
-    """
-    cached = get_cached_species_list(area_code=area_code)
-    if cached is not None:
-        print(f"Bird species list for '{area_code}' was already cached.")
-        return cached
+        :param coord: GPS coordinate used for hotspot lookup
+        :return: Nearest eBird hotspot to the coordinate, or None if no hotspot was near enough
+        """
+        hotspots = []
+        for dist_km in range(0, 501, 5):
+            hotspots = self.retrieve_nearby_hotspots(coord, distance_km=dist_km)
+            if hotspots:
+                break
 
-    print(f"Calling eBird API for the species list at '{area_code}'...")
-    fetched_at_s = int(time.time())
-    payload = get_species_list(token=ebird_api_key, area=area_code)
-    time.sleep(1)  # Sleep to avoid exceeding rate limits
+        if not hotspots:
+            return None
 
-    put_cached_species_list(area_code=area_code, payload=payload, fetched_at_s=fetched_at_s)
+        return min(hotspots, key=lambda hs: geodesic(coord, hs.location.coord).mi)
 
-    return payload
+    def retrieve_region_info(self, region_code: str) -> dict[str, Any]:
+        """Retrieve information for the specified eBird region.
 
+        :param region_code: Unique identifier used by eBird for a region
+        :return: Dictionary containing eBird region information
+        """
+        cached = get_cached("region_info_cache", region_code=region_code)
+        if cached is not None:
+            print(f"Region information for code '{region_code}' was already cached.")
+            return cached
 
-def retrieve_taxonomy_entries(ebird_api_key: str, species: list[str]) -> list[dict[str, Any]]:
-    """Retrieve the eBird taxonomy entries for the requested species.
-
-    :param ebird_api_key: eBird API key, used if the requested data is not cached locally
-    :param species: List of eBird species codes identifying the entries to retrieve
-    :return: List of dictionaries containing eBird taxonomy entry data
-    """
-    needs_lookup = [s_id for s_id in species if get_cached_taxonomy_entry(s_id) is None]
-    if needs_lookup:
-        print(f"Calling eBird API for the taxonomy entry of {len(needs_lookup)} species...")
+        print(f"Calling eBird API for region information for code '{region_code}'...")
         fetched_at_s = int(time.time())
-        payload = get_taxonomy(token=ebird_api_key, category="species", species=needs_lookup)
+        payload = get_region(token=self.ebird_api_key, region=region_code)
         time.sleep(1)  # Sleep to avoid exceeding rate limits
 
-        for species_entry_data in payload:
-            entry_id = species_entry_data.get("speciesCode")
-            if entry_id is None:
-                raise KeyError(f"Unable to find species code for data: {species_entry_data}")
+        put_cached("region_info_cache", payload, fetched_at_s, region_code=region_code)
 
-            put_cached_taxonomy_entry(entry_id, species_entry_data, fetched_at_s)
+        return payload
 
-    output_data = []
-    for species_id in species:
-        cached = get_cached_taxonomy_entry(species_id)
-        if cached is None:
-            print(f"Unable to retrieve eBird taxonomy entry for species: {species_id}")
-            continue
-        output_data.append(cached)
+    def find_region_code(self, region: str, coord: Coordinate) -> str | None:
+        """Find the eBird region code for the specified region.
 
-    return output_data
+        :param region: Text description of the region (e.g., "California, USA")
+        :param coord: GPS coordinate previously found for the region
+        :return: String used by eBird to identify the region, or None if lookup failed
+        """
+        nearest_hotspot = self.find_nearest_hotspot(coord)
+        if nearest_hotspot is None:
+            return None
 
+        loc = nearest_hotspot.location
+        possible_codes: list[str | None] = [loc.country_code, loc.subnat1_code, loc.subnat2_code]
+        r_infos = [self.retrieve_region_info(code) for code in possible_codes if code is not None]
 
-def retrieve_region_info(region_code: str) -> dict[str, Any]:
-    """Retrieve the information for the specified eBird region.
+        closest_match = max(r_infos, key=lambda info: fuzz.ratio(region, info["result"]))
+        return str(closest_match["code"])
 
-    :param region_code: Unique identifier for the region on eBird
-    :return: Dictionary containing eBird region information
-    """
-    ebird_api_key = get_ebird_api_key()
+    def retrieve_hotspots_in_region(self, region_code: str) -> list[EBirdHotspot]:
+        """Retrieve the eBird hotspots in the identified region.
 
-    cached = get_cached_region_info(region_code)
-    if cached is not None:
-        print(f"Region information for code '{region_code}' was already cached.")
-        return cached
+        :param region_code: Unique identifier for a region on eBird
+        :return: List of eBird hotspots in the region
+        """
+        payload = get_cached("hotspots_in_region_cache", region_code=region_code)
+        if payload is not None:
+            print(f"eBird hotspots in region '{region_code}' were already cached.")
+        else:
+            print(f"Calling eBird API for hotspots in region '{region_code}'...")
+            fetched_at_s = int(time.time())
+            payload = get_hotspots(token=self.ebird_api_key, region=region_code)
+            time.sleep(1)  # Sleep to avoid exceeding rate limits
 
-    print(f"Calling eBird API for region information for code '{region_code}'...")
-    fetched_at_s = int(time.time())
-    payload = get_region(token=ebird_api_key, region=region_code)
-    time.sleep(1)  # Sleep to avoid exceeding rate limits
+            put_cached("hotspots_in_region_cache", payload, fetched_at_s, region_code=region_code)
 
-    put_cached_region_info(region_code, payload, fetched_at_s)
+        return [EBirdHotspot.from_json(data) for data in payload]
 
-    return payload
+    def retrieve_species_list(self, area_code: str) -> list[str]:
+        """Retrieve the bird species list for an eBird location, using the local cache or the API.
 
+        :param area_code: Code for a country, subnational region, or eBird location
+        :return: List of identifiers for bird species observed at/in the location/area
+        """
+        payload = get_cached("species_list_cache", area_code=area_code)
+        if payload is None:
+            print(f"Calling eBird API for the species list in '{area_code}'...")
+            fetched_at_s = int(time.time())
+            payload = get_species_list(token=self.ebird_api_key, area=area_code)
+            time.sleep(1)  # Sleep to avoid exceeding rate limits
 
-def retrieve_hotspots_in_region(region_code: str) -> list[EBirdHotspot]:
-    """Retrieve the eBird hotspots in the identified region.
+            put_cached("species_list_cache", payload, fetched_at_s, area_code=area_code)
+        else:
+            print(f"Bird species list for '{area_code}' was already cached.")
 
-    :param region_code: Unique identifier for a region on eBird
-    :return: List of eBird hotspots in the region
-    """
-    payload = get_cached("hotspots_in_region_cache", region_code=region_code)
-    if payload is not None:
-        print(f"eBird hotspots in region '{region_code}' were already cached.")
-    else:
-        ebird_api_key = get_ebird_api_key()
+        return payload
 
-        print(f"Calling eBird API for hotspots in region '{region_code}'...")
-        fetched_at_s = int(time.time())
-        payload = get_hotspots(token=ebird_api_key, region=region_code)
-        time.sleep(1)  # Sleep to avoid exceeding rate limits
+    def retrieve_species_taxons(self, species_codes: list[str]) -> dict[str, EBirdSpecies]:
+        """Retrieve the taxonomy entries for the requested species.
 
-        put_cached("hotspots_in_region_cache", payload, fetched_at_s, region_code=region_code)
+        :param species_codes: List of eBird species codes identifying the entries to retrieve
+        :return: Dictionary mapping species codes to species data structures
+        """
+        species_map: dict[str, EBirdSpecies | None] = {}
+        for code in species_codes:
+            cached = get_cached("species_taxonomy_cache", species_id=code)
+            species_map[code] = None if cached is None else EBirdSpecies.from_json(cached)
 
-    return [EBirdHotspot.from_json(data) for data in payload]
+        missing_species = [code for code, data in species_map.items() if data is None]
+        if missing_species:
+            print(f"Calling eBird API for the taxonomy entry of {len(missing_species)} species...")
+            fetched_at_s = int(time.time())
+            payload = get_taxonomy(self.ebird_api_key, species=missing_species)
+            time.sleep(1)  # Sleep to avoid exceeding rate limits
 
+            for raw_data in payload:
+                s_code = raw_data.get("speciesCode")
+                if s_code is None:
+                    print(f"Unable to find species code in data: {raw_data}")
+                    continue
 
-def find_nearest_hotspot(coord: Coordinate) -> EBirdHotspot | None:
-    """Retrieve the eBird hotspot closest to the given coordinate.
+                put_cached("species_taxonomy_cache", raw_data, fetched_at_s, species_id=s_code)
+                species_map[s_code] = EBirdSpecies.from_json(raw_data)
 
-    :param coord: GPS coordinate used for hotspot lookup
-    :return: Nearest eBird hotspot to the coordinate, or None if no hotspot was near enough
-    """
-    ebird_api_key = get_ebird_api_key()
+        output_data = {code: data for code, data in species_map.items() if data is not None}
+        for species_code in species_codes:
+            assert species_code in output_data, f"Entry for species '{species_code}' is missing."
 
-    hotspots_data = []
-    for dist_km in range(0, 501, 5):
-        hotspots_data = retrieve_nearby_hotspots(ebird_api_key, coord, dist_km)
-        if hotspots_data:
-            break
+        return output_data
 
-    if not hotspots_data:
-        return None
+    def find_species_in_region(self, region_code: str) -> list[EBirdSpecies]:
+        """Retrieve the list of species ever seen in the specified eBird region.
 
-    hotspots = [EBirdHotspot.from_json(data) for data in hotspots_data]
-    return min(hotspots, key=lambda hs: geodesic(coord, hs.location.coord).mi)
-
-
-def find_ebird_region_code(region: str, coord: Coordinate) -> None:
-    """Find the eBird region code for the specified region.
-
-    :param region: Text description of the region (e.g., "California, USA")
-    :param coord: GPS coordinate found for the region
-    :return: String used by eBird to identify the region
-    """
-    nearest_hotspot = find_nearest_hotspot(coord)
-    if nearest_hotspot is None:
-        return None
-
-    loc = nearest_hotspot.location
-    candidate_codes: list[str | None] = [loc.country_code, loc.subnat1_code, loc.subnat2_code]
-    region_infos = [retrieve_region_info(code) for code in candidate_codes if code is not None]
-    best_region_info = max(region_infos, key=lambda info: fuzz.ratio(region, info["result"]))
-
-    return best_region_info["code"]
-
-
-def find_species_in_region(region_code: str) -> list[EBirdSpecies]:
-    """Retrieve the list of species even seen in the specified eBird region.
-
-    :param region_code: Unique identifier for the region on eBird
-    :return: List of species data structures
-    """
-    ebird_api_key = get_ebird_api_key()
-
-    species_in_region = retrieve_species_list(ebird_api_key, region_code)
-    ebird_taxonomy_data = retrieve_taxonomy_entries(ebird_api_key, species_in_region)
-
-    return [EBirdSpecies.from_api_json(data) for data in ebird_taxonomy_data]
+        :param region_code: Unique identifier for the region on eBird
+        :return: List of species data structures
+        """
+        species_in_region = self.retrieve_species_list(region_code)
+        species_taxons = self.retrieve_species_taxons(species_in_region)
+        return [species_taxons[s] for s in species_in_region]
